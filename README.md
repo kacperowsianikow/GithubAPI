@@ -11,7 +11,7 @@ Application for retrieving repository data for a given username.
 
 ## Setup:
 ### Generating GitHub token
-#### If you already have your token, you can skip this step. Just make sure that your token has 'repo' in scopes
+#### (If you already have your token, you can skip this step. Just make sure that your token has 'repo' in scopes)
 You can do this by following these steps:
 - enter your account's settings,
 - go to the 'Developer settings',
