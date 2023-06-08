@@ -10,11 +10,8 @@ Application for retrieving repository data for a given username.
 - JSON In Java.
 
 ## Setup:
-Before starting the app, in application.properties file, in line:
-'github.token=YOUR_GITHUB_TOKEN', in place of YOUR_GITHUB_TOKEN you 
-should enter token generated in your GitHub account.
-
 ### Generating GitHub token
+#### If you already have your token, you can skip this step. Just make sure that your token has 'repo' in scopes
 You can do this by following these steps:
 - enter your account's settings,
 - go to the 'Developer settings',
@@ -23,6 +20,11 @@ You can do this by following these steps:
 - in the note field enter name for your token,
 - in 'Select scopes' check the box 'repo' with its sub-boxes,
 - click generate.
+
+### Entering your token
+In application.properties file, in line:
+'github.token=YOUR_GITHUB_TOKEN', in place of YOUR_GITHUB_TOKEN you 
+should enter token generated in your GitHub account.
 
 ### Start up
 If you entered generated token into application.properties file, you can 
