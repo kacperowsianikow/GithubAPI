@@ -2,84 +2,102 @@ package com.GithubAPI.service;
 
 import com.GithubAPI.exception.UserNotFoundException;
 import com.GithubAPI.github.BranchDto;
-import com.GithubAPI.github.GithubClient;
-import com.GithubAPI.github.GithubResponseDto;
+import com.GithubAPI.github.ResponseDto;
+import com.GithubAPI.github.githubresponse.Branch;
+import com.GithubAPI.github.githubresponse.Repository;
+import com.GithubAPI.mapper.AppMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class AppService implements IAppService {
-    private final GithubClient githubClient;
+    @Value("${github.baseurl}")
+    private String githubApiUrl;
+    @Value("${github.token}")
+    private String token; //TODO: implement token
+    private final AppMapper appMapper;
+    private final ObjectMapper objectMapper;
+    private final WebClient webClient;
+    private static final String USER_ERROR_MESSAGE =
+            "No repositories found for user with username: ";
 
-    @Override
-    public List<GithubResponseDto> getRepositories(String username) {
-        try {
-            String repositoryResponse = githubClient.getRepositories(username);
-            JSONArray repositoryArray = new JSONArray(repositoryResponse);
-
-            log.info("Retrieved repositories for user: " + username);
-
-            List<GithubResponseDto> response = new ArrayList<>();
-
-            repositoryArray.forEach(repositoryObject -> {
-                JSONObject jsonRepositoryObject = (JSONObject) repositoryObject;
-
-                if (!jsonRepositoryObject.getBoolean("fork")) {
-                    String repositoryName = jsonRepositoryObject.getString("name");
-
-                    response.add(new GithubResponseDto(
-                            repositoryName,
-                            jsonRepositoryObject.getJSONObject("owner").getString("login"),
-                            getBranches(username, repositoryName)
-                    ));
-                }
-            });
-
-            return response;
-        } catch (JSONException e) {
-            log.warn(
-                    "Encountered error while retrieving repository data: " +
-                    e.getMessage()
-            );
-            throw new UserNotFoundException(
-                    "No repositories found for user with username: " + username
-            );
-        }
+    public AppService(AppMapper appMapper,
+                      ObjectMapper objectMapper,
+                      WebClient.Builder webClientBuilder) {
+        this.appMapper = appMapper;
+        this.objectMapper = objectMapper;
+        this.webClient = webClientBuilder.build();
     }
 
-    private List<BranchDto> getBranches(String username, String repositoryName) {
-        try {
-            String branchResponse = githubClient.getBranches(username, repositoryName);
-            JSONArray branchArray = new JSONArray(branchResponse);
+    @Override
+    public List<ResponseDto> getRepositoriesData(String username) {
+        String repoUrl = String.format("%s/users/%s/repos",
+                githubApiUrl, username);
 
-            log.info("Retrieved branches for repository: " + repositoryName);
+        return Arrays.stream(
+                Objects.requireNonNull(webClient
+                                .get()
+                                .uri(repoUrl)
+                                .retrieve()
+                                .onStatus(
+                                        HttpStatusCode::is4xxClientError,
+                                        clientResponse -> Mono.error(new UserNotFoundException(
+                                                USER_ERROR_MESSAGE + username
+                                        ))
+                                )
+                                .bodyToMono(Repository[].class)
+                                .log()
+                                .flatMapMany(Flux::fromArray)
+                                .collectList()
+                                .block())
+                        .toArray()
+                )
+                .map(repo -> objectMapper.convertValue(repo, Repository.class))
+                .filter(repo -> !repo.fork())
+                .map(repo -> appMapper.toResponseDto(
+                        repo,
+                        getReposBranches(
+                                repo.owner().login(),
+                                repo.name()
+                        )
+                ))
+                .collect(Collectors.toList());
+    }
 
-            List<BranchDto> branchDtos = new ArrayList<>();
+    private List<BranchDto> getReposBranches(String username,
+                                             String repositoryName) {
+        String branchUrl = String.format("%s/repos/%s/%s/branches",
+                githubApiUrl, username, repositoryName);
 
-            branchArray.forEach(branchObject -> {
-                JSONObject jsonBranchObject = (JSONObject) branchObject;
-                branchDtos.add(new BranchDto(
-                        jsonBranchObject.getString("name"),
-                        jsonBranchObject.getJSONObject("commit").getString("sha")
-                ));
-            });
-
-            return branchDtos;
-
-        } catch (JSONException e) {
-            log.warn("Encountered error while retrieving branch data: " +
-                    e.getMessage());
-            throw new JSONException(e.getMessage());
-        }
+        return Arrays.stream(
+                Objects.requireNonNull(webClient
+                                .get()
+                                .uri(branchUrl)
+                                .retrieve()
+                                .bodyToMono(Branch[].class)
+                                .log()
+                                .flatMapMany(Flux::fromArray)
+                                .collectList()
+                                .block())
+                        .toArray()
+                )
+                .map(branch -> objectMapper.convertValue(branch, Branch.class))
+                .map(appMapper::toBranchDto)
+                .collect(Collectors.toList());
     }
 
 }
